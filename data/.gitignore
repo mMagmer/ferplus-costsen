@@ -1,0 +1,3 @@
+#ignore data blob for fer+
+*.tar.gz
+fer2013/*.csv
