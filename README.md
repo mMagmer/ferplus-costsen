@@ -1,5 +1,5 @@
 # ferplus-costsen
-This repository contain the implementation of EfficientNet on FER+ dataset [[1]](#1) using pytorch.
+This repository will include the implementation of EfficientNet on FER+ dataset [[1]](#1) using pytorch. **no functionality yet**
 
 The FER+ annotations provide a set of new labels for the standard Emotion FER dataset [[2]](#2).
 
