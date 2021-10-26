@@ -1,6 +1,48 @@
-import numpy as np 
+
 import os
 
+from PIL import Image
+from torch.utils.data import Dataset
+import numpy as np 
+
+
+class FERDataset(Dataset):
+    """
+    A standard PyTorch definition of Dataset which defines the functions __len__ and __getitem__.
+    """
+    def __init__(self, data_split, transform=None):
+        """
+        Convert a dictionary containing list of images and lables to standard PyTorch definition of Dataset.
+        Specifies transforms to apply on images.
+
+        Args:
+            data_split: (dict) dictionary containing list of images and labels
+            transform: (torchvision.transforms) transformation to apply on image
+        """
+        self.data_split = data_split
+        self.transform = transform
+
+    def __len__(self):
+        # return size of dataset
+        return len(self.data_split['images'])
+
+    def __getitem__(self, idx):
+        """
+        Fetch index idx image and labels from dataset. Perform transforms on image.
+
+        Args:
+            idx: (int) index in [0, 1, ..., size_of_dataset-1]
+
+        Returns:
+            image: (Tensor) transformed image
+            label: (int) corresponding label of image
+        """
+        image = self.data_split['images'][idx]
+        if self.transform:
+            image = self.transform(image)
+        
+        
+        return image, self.data_split['labels'][idx]
 
 def fetch_data(data_path="./data/fer2013/fer2013.csv",new_label_path="./data/fer2013/fer2013new.csv"):
     """
@@ -34,7 +76,7 @@ def fetch_data(data_path="./data/fer2013/fer2013.csv",new_label_path="./data/fer
         
         img = img.split(" ") # because the pixels are seperated by space
         img = np.array(img, 'int') # just make sure it is int not str
-        img = img.reshape(48,48) # change shape from 2304 to 48 * 48
+        img = img.reshape(1,48,48) # change shape from 2304 to 48 * 48
         
         label = majority[idx]
         
@@ -44,5 +86,20 @@ def fetch_data(data_path="./data/fer2013/fer2013.csv",new_label_path="./data/fer
     return splits , new_classes[:8]
 
 if __name__ == '__main__':
-    s , classes = fetch_data()
-    print(np.stack(s['test']['images']).shape)
+    # this script plot some example of FER+ dataset.
+    
+    data_splits ,classes = fetch_data()
+    trainset = FERDataset(data_splits['train'])
+    
+    import matplotlib.pyplot as plt
+    
+    fig, axs = plt.subplots(nrows=2, ncols=6, figsize=(12, 5),
+                            subplot_kw={'xticks': [], 'yticks': []})
+
+    images, labels = trainset[0:12]
+    for ax, image, label in zip(axs.flat, images, labels):
+        ax.imshow(image[0], cmap='gray',interpolation='bilinear', vmin=0, vmax=255)
+        ax.set_title(classes[label])
+
+    plt.tight_layout()
+    plt.show()
