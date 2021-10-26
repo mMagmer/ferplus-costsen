@@ -1,10 +1,31 @@
 
 import os
 
-from PIL import Image
 from torch.utils.data import Dataset
-import numpy as np 
 
+import numpy as np 
+import albumentations as A
+from albumentations.pytorch import ToTensorV2
+
+Spatial_transform = A.OneOf([A.ShiftScaleRotate(p=.5)
+                             ,A.RandomCrop(height=40, width=40,p=.5)
+                             ,A.Perspective(p=.5)],p=.75)
+pixel_transform = A.OneOf([A.ColorJitter(p=.5)
+                           ,A.Sharpen(p=.5)],p=.75)
+
+transform_train = A.Compose([A.HorizontalFlip()
+                             ,pixel_transform
+                             ,Spatial_transform
+                             ,A.CoarseDropout(max_holes=4,min_holes=1,max_height=4,max_width=4,p=.5,fill_value=128)
+                             ,A.Resize(64,64)
+                             ,A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0)
+                             ,ToTensorV2()
+                            ])
+
+transform_infer = A.Compose([A.Resize(64,64)
+                             ,A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0)
+                             ,ToTensorV2()
+                            ])
 
 class FERDataset(Dataset):
     """
@@ -38,9 +59,10 @@ class FERDataset(Dataset):
             label: (int) corresponding label of image
         """
         image = self.data_split['images'][idx]
-        if self.transform:
-            image = self.transform(image)
         
+        if self.transform:
+            augmented = self.transform(image=image)
+            image = augmented['image']
         
         return image, self.data_split['labels'][idx]
 
@@ -75,8 +97,8 @@ def fetch_data(data_path="./data/fer2013/fer2013.csv",new_label_path="./data/fer
         _, img, usage = data[idx+1].split(",") #  +1 to skip first row (column name)
         
         img = img.split(" ") # because the pixels are seperated by space
-        img = np.array(img, 'int') # just make sure it is int not str
-        img = img.reshape(1,48,48) # change shape from 2304 to 48 * 48
+        img = np.array(img, 'uint8') # just make sure it is int not str
+        img = img.reshape(48,48,1) # change shape from 2304 to 48 * 48
         
         label = majority[idx]
         
@@ -98,7 +120,7 @@ if __name__ == '__main__':
 
     images, labels = trainset[0:12]
     for ax, image, label in zip(axs.flat, images, labels):
-        ax.imshow(image[0], cmap='gray',interpolation='bilinear', vmin=0, vmax=255)
+        ax.imshow(image, cmap='gray',interpolation='bilinear', vmin=0, vmax=255)
         ax.set_title(classes[label])
 
     plt.tight_layout()
