@@ -5,6 +5,8 @@ import shutil
 
 import torch
 
+import textwrap
+
 class Params():
     """Class that loads hyperparameters from a json file.
 
@@ -58,7 +60,20 @@ class RunningAverage():
     
     def __call__(self):
         return self.total/float(self.steps)
-        
+
+    
+class MultiLineFormatter(logging.Formatter):
+    def __init__(self, fmt,datefmt):
+        super(MultiLineFormatter, self).__init__(fmt=fmt, datefmt=datefmt)
+
+    def format(self, record):
+        message = record.msg
+        record.msg = ''
+        header = super(MultiLineFormatter, self).format(record)
+        msg = textwrap.indent(message, ' ' * len(header)).strip()
+        record.msg = message
+        return header + msg
+    
     
 def set_logger(log_path):
     """Set the logger to log info in terminal and file `log_path`.
@@ -74,13 +89,16 @@ def set_logger(log_path):
     Args:
         log_path: (string) where to log
     """
+    formatter = MultiLineFormatter(fmt='%(asctime)s %(levelname)-4s %(message)s',
+                                   datefmt='%Y-%m-%d %H:%M:%S')
+    
     logger = logging.getLogger()
     logger.setLevel(logging.INFO)
 
     if not logger.handlers:
         # Logging to a file
         file_handler = logging.FileHandler(log_path)
-        file_handler.setFormatter(logging.Formatter('%(asctime)s:%(levelname)s: %(message)s'))
+        file_handler.setFormatter(formatter)
         logger.addHandler(file_handler)
 
         # Logging to console
