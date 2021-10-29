@@ -8,16 +8,9 @@ import numpy as np
 import torch
 from torch.autograd import Variable
 import utils
-import model.net as net
-import model.data_loader as data_loader
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--data_dir', default='data/64x64_SIGNS',
-                    help="Directory containing the dataset")
-parser.add_argument('--model_dir', default='experiments/base_model',
-                    help="Directory containing params.json")
-parser.add_argument('--restore_file', default='best', help="name of the file in --model_dir \
-                     containing weights to load")
+from data.data_utils import fetch_data , FERDataset , transform_train , transform_infer
+
 
 
 def evaluate(model, loss_fn, dataloader, metrics, params):
