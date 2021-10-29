@@ -1,7 +1,7 @@
 
 import os
 
-from torch.utils.data import Dataset
+from torch.utils.data import Dataset , DataLoader
 
 import numpy as np 
 import albumentations as A
@@ -40,6 +40,8 @@ class FERDataset(Dataset):
             data_split: (dict) dictionary containing list of images and labels
             transform: (torchvision.transforms) transformation to apply on image
         """
+        self.in_channels=1
+        self.num_classes=8
         self.data_split = data_split
         self.transform = transform
 
