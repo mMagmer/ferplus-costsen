@@ -10,19 +10,17 @@ import torch.optim as optim
 from torch.autograd import Variable
 from tqdm import tqdm
 
+import sys
+sys.path.append('')
+#os.chdir("..")
+
 import utils
-import model.net as net
-import model.data_loader as data_loader
+from data.data_utils import fetch_data, FERDataset, DataLoader, transform_train, transform_infer
 from evaluate import evaluate
 
-parser = argparse.ArgumentParser()
-parser.add_argument('--data_dir', default='data/64x64_SIGNS',
-                    help="Directory containing the dataset")
-parser.add_argument('--model_dir', default='experiments/base_model',
-                    help="Directory containing params.json")
-parser.add_argument('--restore_file', default=None,
-                    help="Optional, name of the file in --model_dir containing weights to reload before \
-                    training")  # 'best' or 'train'
+from efficientnet_pytorch import EfficientNet
+
+
 
 
 def train(model, optimizer, loss_fn, dataloader, metrics, params):
@@ -154,16 +152,116 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, loss_
 
 
 if __name__ == '__main__':
+    
+    parser = argparse.ArgumentParser()
+    
+    """
+    Saving & loading of the model.
+    """
+    parser.add_argument('--experiment_title', default='train model on fer+')
+    
+    parser.add_argument('--model_dir', default='experiments',
+                        help="Directory containing params.json")
+    parser.add_argument("--save_name", type=str, default="fer")
+    parser.add_argument("--overwrite", action="store_true")
+    
+    parser.add_argument('--restore_file', default=None,
+                        help="Optional, name of the file in --model_dir containing weights to reload before \
+                        training")  # 'best' or 'train'
+    
+    """
+    Training Configuration
+    """
+
+    parser.add_argument("--epoch", type=int, default=200)
+    parser.add_argument(
+        "--num_train_iter",
+        type=int,
+        default=1000,
+        help="total number of training iterations",
+    )
+    parser.add_argument(
+        "--num_eval_iter", type=int, default=1000, help="evaluation frequency"
+    )
+    
+    parser.add_argument(
+        "--batch_size",
+        type=int,
+        default=64,
+        help="total number of batch size of labeled data",
+    )
+
+    parser.add_argument(
+        "--eval_batch_size",
+        type=int,
+        default=128,
+        help="batch size of evaluation data loader (it does not affect the accuracy)",
+    )
+    
+    """
+    Optimizer configurations
+    """
+    
+    parser.add_argument("--opt", type=str, default="SGD")
+    parser.add_argument("--lr", type=float, default=0.03)
+    parser.add_argument("--momentum", type=float, default=0.9)
+    parser.add_argument("--weight_decay", type=float, default=5e-4)
+    parser.add_argument(
+        "--amp", action="store_true", help="use mixed precision training or not"
+    )
+
+    """
+    Backbone Net Configurations
+    """
+    
+    parser.add_argument("--net", type=str, default="efficientnet-b0")
+    parser.add_argument("--net_from_name", type=bool, default=False)
+    parser.add_argument("--pretrained", action="store_true", default=False)
+    parser.add_argument("--depth", type=int, default=28)
+    parser.add_argument("--widen_factor", type=int, default=2)
+    parser.add_argument("--leaky_slope", type=float, default=0.1)
+    parser.add_argument("--dropout", type=float, default=0.0)
+
+    """
+    Data Configurations
+    """
+    
+    parser.add_argument('--data_dir', default='data/fer2013/fer2013.csv',
+                        help="Directory containing the dataset")
+
+    parser.add_argument("--dataset", type=str, default="fer+")
+    parser.add_argument("--data_sampler", type=str, default="weigthed")
+    parser.add_argument("--num_workers", type=int, default=1)
+    
+    args = parser.parse_args()
 
     # Load the parameters from json file
-    args = parser.parse_args()
+    import json
+    
+    #print(json.dumps(vars(args),  indent=4))
+    
+    args.model_dir = os.path.join( args.model_dir,args.save_name)
+    print(args.model_dir)
+    
+    
+    
     json_path = os.path.join(args.model_dir, 'params.json')
-    assert os.path.isfile(
-        json_path), "No json configuration file found at {}".format(json_path)
+    
+    os.makedirs(os.path.dirname(json_path), exist_ok=True)
+    
+    assert not (os.path.isfile(json_path) and not args.overwrite), "already existing json configuration file found at {} \
+    \n use overwrite flag if you're sure!".format(json_path)
+    
+    with open(json_path,'w' if args.overwrite else 'x' ) as f:
+        json.dump(vars(args), f, indent=4)
+    
+    
     params = utils.Params(json_path)
-
+    
+    
     # use GPU if available
     params.cuda = torch.cuda.is_available()
+    
 
     # Set the random seed for reproducible experiments
     torch.manual_seed(230)
@@ -172,22 +270,49 @@ if __name__ == '__main__':
 
     # Set the logger
     utils.set_logger(os.path.join(args.model_dir, 'train.log'))
+    
+    # hyper parameter settings
+    logging.info("Setup for training model:")
+    logging.info((json.dumps(vars(args),  indent=4)))
 
     # Create the input data pipeline
     logging.info("Loading the datasets...")
-
+    
     # fetch dataloaders
-    dataloaders = data_loader.fetch_dataloader(
-        ['train', 'val'], args.data_dir, params)
-    train_dl = dataloaders['train']
-    val_dl = dataloaders['val']
+    data_splits ,classes = fetch_data()
+    trainset = FERDataset(data_splits['train'],transform=transform_train)
+    valset = FERDataset(data_splits['val'],transform=transform_infer)
+    
+    blance_sampler = None
+    
+    train_dl = DataLoader(trainset, batch_size= params.batch_size, 
+                          shuffle=False, sampler= blance_sampler,
+                          num_workers= params.num_workers, pin_memory= params.cuda)
+    
+    val_dl = DataLoader(valset, batch_size= params.batch_size, 
+                        shuffle= False, sampler= None,
+                        num_workers= params.num_workers, pin_memory= params.cuda)
 
     logging.info("- done.")
 
     # Define the model and optimizer
-    model = net.Net(params).cuda() if params.cuda else net.Net(params)
-    optimizer = optim.Adam(model.parameters(), lr=params.learning_rate)
+            
+    if "efficientnet" in params.net:
+        if params.pretrained:
+            raise Exception("Not Implemented Yet!")
 
+        else:
+            logging.info("Using not pretrained model "+ params.net+ " ...")
+            model = EfficientNet.from_name('efficientnet-b0',in_channels=trainset.in_channels,num_classes=trainset.num_classes)
+
+    else:
+        raise Exception("Not Implemented Error! check --net ")
+       
+    
+    model = model.cuda() if params.cuda else model
+    optimizer = optim.SGD(model.parameters(), lr=params.lr)
+
+    assert False, 'forced stop!'
     # fetch loss function and metrics
     loss_fn = net.loss_fn
     metrics = net.metrics
