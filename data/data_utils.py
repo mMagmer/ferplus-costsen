@@ -17,12 +17,12 @@ transform_train = A.Compose([A.HorizontalFlip()
                              ,pixel_transform
                              ,Spatial_transform
                              ,A.CoarseDropout(max_holes=4,min_holes=1,max_height=4,max_width=4,p=.5,fill_value=128)
-                             ,A.Resize(64,64)
+                             ,A.Resize(128,128)
                              ,A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0)
                              ,ToTensorV2()
                             ])
 
-transform_infer = A.Compose([A.Resize(64,64)
+transform_infer = A.Compose([A.Resize(128,128)
                              ,A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0)
                              ,ToTensorV2()
                             ])
