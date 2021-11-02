@@ -1,3 +1,6 @@
+# Saved Models and Hyper-Parameters
+experiments/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[cod]
