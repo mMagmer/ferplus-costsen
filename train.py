@@ -20,6 +20,11 @@ from evaluate import evaluate
 
 from efficientnet_pytorch import EfficientNet
 
+#import warnings
+#warnings.filterwarnings("ignore", message=".*pthreadpool.*")
+
+
+
 
 
 
@@ -44,7 +49,7 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
     loss_avg = utils.RunningAverage()
 
     # Use tqdm for progress bar
-    with tqdm(total=len(dataloader)) as t:
+    with tqdm(total=len(dataloader), file=sys.stdout) as t:
         for i, (train_batch, labels_batch) in enumerate(dataloader):
             # move to GPU if available
             if params.cuda:
@@ -91,7 +96,7 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
     logging.info("- Train metrics: " + metrics_string)
 
 
-def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, loss_fn, metrics, params, model_dir,
+def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, scheduler, loss_fn, metrics, params, model_dir,
                        restore_file=None):
     """Train the model and evaluate every epoch.
 
@@ -124,7 +129,9 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, loss_
 
         # Evaluate for one epoch on validation set
         val_metrics = evaluate(model, loss_fn, val_dataloader, metrics, params)
-
+        # update optimizer parameters
+        scheduler.step()
+        
         val_acc = val_metrics['accuracy']
         is_best = val_acc >= best_val_acc
 
@@ -173,7 +180,7 @@ if __name__ == '__main__':
     Training Configuration
     """
 
-    parser.add_argument("--epoch", type=int, default=200)
+    parser.add_argument("--num_epochs", type=int, default=200)
     parser.add_argument(
         "--num_train_iter",
         type=int,
@@ -181,13 +188,13 @@ if __name__ == '__main__':
         help="total number of training iterations",
     )
     parser.add_argument(
-        "--num_eval_iter", type=int, default=1000, help="evaluation frequency"
+        "--save_summary_steps", type=int, default=20, help="evaluation frequency"
     )
     
     parser.add_argument(
         "--batch_size",
         type=int,
-        default=64,
+        default=128,
         help="total number of batch size of labeled data",
     )
 
@@ -286,12 +293,12 @@ if __name__ == '__main__':
     blance_sampler = None
     
     train_dl = DataLoader(trainset, batch_size= params.batch_size, 
-                          shuffle=False, sampler= blance_sampler,
+                          shuffle=True, sampler= blance_sampler,
                           num_workers= params.num_workers, pin_memory= params.cuda)
     
     val_dl = DataLoader(valset, batch_size= params.batch_size, 
                         shuffle= False, sampler= None,
-                        num_workers= params.num_workers, pin_memory= params.cuda)
+                        num_workers= 2, pin_memory= params.cuda)
 
     logging.info("- done.")
 
@@ -310,14 +317,36 @@ if __name__ == '__main__':
        
     
     model = model.cuda() if params.cuda else model
-    optimizer = optim.SGD(model.parameters(), lr=params.lr)
+    optimizer = optim.SGD(model.parameters(),
+                          lr=params.lr,momentum=params.momentum,weight_decay=params.weight_decay, nesterov=True)
+    
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.6)
 
-    assert False, 'forced stop!'
+    #assert False, 'forced stop!'
     # fetch loss function and metrics
-    loss_fn = net.loss_fn
-    metrics = net.metrics
+    loss_fn = torch.nn.CrossEntropyLoss()
+    
+    def accuracy(outputs, labels):
+        """
+        Compute the accuracy, given the outputs and labels for all images.
+        Args:
+            outputs: (np.ndarray) dimension batch_size x 6 - log softmax output of the model
+            labels: (np.ndarray) dimension batch_size, where each element is a value in [0, 1, 2, 3, 4, 5]
+        Returns: (float) accuracy in [0,1]
+        """
+        outputs = np.argmax(outputs, axis=1)
+        return np.sum(outputs==labels)/float(labels.size)
+
+
+    # maintain all metrics required in this dictionary- these are used in the training and evaluation loops
+    metrics = {
+        'accuracy': accuracy,
+        # could add more metrics such as accuracy for each token type
+    }
+    # metrics.accuracy_score, sklearn.metrics.recall_score, sklearn.metrics.f1_score, sklearn.metrics.precision_score,
+    #or sklearn.metrics.classification_report  for all
 
     # Train the model
     logging.info("Starting training for {} epoch(s)".format(params.num_epochs))
-    train_and_evaluate(model, train_dl, val_dl, optimizer, loss_fn, metrics, params, args.model_dir,
+    train_and_evaluate(model, train_dl, val_dl, optimizer, scheduler, loss_fn, metrics, params, args.model_dir,
                        args.restore_file)
