@@ -290,7 +290,13 @@ if __name__ == '__main__':
     trainset = FERDataset(data_splits['train'],transform=transform_train)
     valset = FERDataset(data_splits['val'],transform=transform_infer)
     
-    blance_sampler = None
+    p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
+    gmean = lambda p: torch.exp(torch.log(p).mean())
+    w = (p/gmean(p))**(-1/3)
+    blance_sampler = torch.utils.data.WeightedRandomSampler(weights=w[trainset.data_split["labels"]],
+                                                            num_samples=len(trainset.data_split["labels"]),
+                                                            replacement=True, generator=None)
+    
     
     train_dl = DataLoader(trainset, batch_size= params.batch_size, 
                           shuffle=True, sampler= blance_sampler,
@@ -324,7 +330,7 @@ if __name__ == '__main__':
 
     #assert False, 'forced stop!'
     # fetch loss function and metrics
-    loss_fn = torch.nn.CrossEntropyLoss()
+    loss_fn = torch.nn.CrossEntropyLoss(weight=w.cuda()**-1)
     
     def accuracy(outputs, labels):
         """
