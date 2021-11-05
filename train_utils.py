@@ -63,6 +63,69 @@ class MarginCalibratedCELoss(_Loss):
         return F.cross_entropy(input, target, weight=self.weight,
                                ignore_index=self.ignore_index, reduction=self.reduction)
 
+    
+import numpy as np
+from typing import Dict
+
+class ConfusionMatrix():
+    """Calculates confusion matrix for multi-class data.
+
+    - ``update`` must receive output of the form ``(y_pred, y)`` or ``{'y_pred': y_pred, 'y': y}``.
+    - `y_pred` must contain logits and has the following shape (batch_size, num_classes, ...).
+    - `y` should have the following shape (batch_size, ...) and contains ground-truth class indices.
+       During the computation, argmax of `y_pred` is taken to determine predicted classes.
+       
+    Args:
+        num_classes: Number of classes, should be > 1. See notes for more details.
+    """
+
+    def __init__(self,num_classes: int):
+        self.num_classes = num_classes
+        self.confusion_matrix = np.zeros((self.num_classes, self.num_classes),dtype = 'int')
+        self._num_examples = 0
+    
+    def reset(self) -> None:
+        self.confusion_matrix.fill(0)
+        self._num_examples = 0
+            
+    def update(self, outputs, labels) -> None:
+        y_pred, y = np.argmax(outputs, axis=1).flatten(), labels
+
+        self._num_examples += y_pred.shape[0]
+
+        # target is (batch_size, ...)
+        y = y.flatten()
+
+        target_mask = (y >= 0) & (y < self.num_classes)
+        y = y[target_mask]
+        y_pred = y_pred[target_mask]
+
+        cm = np.zeros_like(self.confusion_matrix)
+        for i , j in zip(y,y_pred):
+            cm[i,j] += 1
+            
+        self.confusion_matrix += cm
+        
+    def compute(self, average: bool = True) -> Dict:
+        cm = self.confusion_matrix
+        accuracy = cm.diagonal().sum() / (cm.sum() + 1e-15)
+        recall = cm.diagonal() / (cm.sum(axis=1) + 1e-15)
+        precision = cm.diagonal() / (cm.sum(axis=0) + 1e-15)  
+        iou = cm.diagonal() / (cm.sum(axis=1) + cm.sum(axis=0) - cm.diagonal() + 1e-15)
+        
+        if average:
+            precision = precision.mean()
+            recall = recall.mean()
+            iou = iou.mean()
+        
+        metrics = {'accuracy': accuracy,
+                   'recall' : recall,
+                   'precision' : precision,
+                   'IoU' : iou}
+        
+        return metrics    
+    
+    
 if __name__ == "__main__":
     
     p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
