@@ -23,8 +23,7 @@ from efficientnet_pytorch import EfficientNet
 #import warnings
 #warnings.filterwarnings("ignore", message=".*pthreadpool.*")
 
-
-
+from train_utils import MarginCalibratedCELoss , ConfusionMatrix
 
 
 
@@ -36,7 +35,7 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
         optimizer: (torch.optim) optimizer for parameters of model
         loss_fn: a function that takes batch_output and batch_labels and computes the loss for the batch
         dataloader: (DataLoader) a torch.utils.data.DataLoader object that fetches training data
-        metrics: (dict) a dictionary of functions that compute a metric using the output and labels of each batch
+        metrics: main metric for determining best performing model
         params: (Params) hyperparameters
         num_steps: (int) number of batches to train on, each of size params.batch_size
     """
@@ -45,6 +44,8 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
     model.train()
 
     # summary for current training loop and a running average object for loss
+    cm = ConfusionMatrix(num_classes=8)
+    
     summ = []
     loss_avg = utils.RunningAverage()
 
@@ -73,14 +74,15 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
             # Evaluate summaries only once in a while
             if i % params.save_summary_steps == 0:
                 # extract data from torch Variable, move to cpu, convert to numpy arrays
-                output_batch = output_batch.data.cpu().numpy()
-                labels_batch = labels_batch.data.cpu().numpy()
+                output_batch = output_batch.cpu().detach().numpy()
+                labels_batch = labels_batch.cpu().detach().numpy()
+                
+                cm.update(output_batch,labels_batch)
 
                 # compute all metrics on this batch
-                summary_batch = {metric: metrics[metric](output_batch, labels_batch)
-                                 for metric in metrics}
-                summary_batch['loss'] = loss.item()
-                summ.append(summary_batch)
+                #summary_batch = cm.compute()
+                #summary_batch['loss'] = loss.item()
+                #summ.append(summary_batch)
 
             # update the average loss
             loss_avg.update(loss.item())
@@ -89,8 +91,8 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
             t.update()
 
     # compute mean of all metrics in summary
-    metrics_mean = {metric: np.mean([x[metric]
-                                     for x in summ]) for metric in summ[0]}
+    metrics_mean = cm.compute()
+    
     metrics_string = " ; ".join("{}: {:05.3f}".format(k, v)
                                 for k, v in metrics_mean.items())
     logging.info("- Train metrics: " + metrics_string)
@@ -106,7 +108,7 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
         val_dataloader: (DataLoader) a torch.utils.data.DataLoader object that fetches validation data
         optimizer: (torch.optim) optimizer for parameters of model
         loss_fn: a function that takes batch_output and batch_labels and computes the loss for the batch
-        metrics: (dict) a dictionary of functions that compute a metric using the output and labels of each batch
+        metrics: main metric for determining best performing model
         params: (Params) hyperparameters
         model_dir: (string) directory containing config, weights and log
         restore_file: (string) optional- name of file to restore from (without its extension .pth.tar)
@@ -132,7 +134,7 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
         # update optimizer parameters
         scheduler.step()
         
-        val_acc = val_metrics['accuracy']
+        val_acc = val_metrics[metrics]
         is_best = val_acc >= best_val_acc
 
         # Save weights
@@ -345,12 +347,8 @@ if __name__ == '__main__':
 
 
     # maintain all metrics required in this dictionary- these are used in the training and evaluation loops
-    metrics = {
-        'accuracy': accuracy,
-        # could add more metrics such as accuracy for each token type
-    }
-    # metrics.accuracy_score, sklearn.metrics.recall_score, sklearn.metrics.f1_score, sklearn.metrics.precision_score,
-    #or sklearn.metrics.classification_report  for all
+    metrics = 'accuracy'
+        
 
     # Train the model
     logging.info("Starting training for {} epoch(s)".format(params.num_epochs))
