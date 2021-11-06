@@ -11,7 +11,7 @@ import utils
 
 from data.data_utils import fetch_data , FERDataset , transform_train , transform_infer
 
-
+from train_utils import MarginCalibratedCELoss , ConfusionMatrix
 
 def evaluate(model, loss_fn, dataloader, metrics, params):
     """Evaluate the model on `num_steps` batches.
@@ -53,6 +53,8 @@ def evaluate(model, loss_fn, dataloader, metrics, params):
         labels_batch = labels_batch.cpu().detach().numpy()
 
         # compute all metrics on this batch
+        cm.update(output_batch,labels_batch)
+        
         #summary_batch = {metric: metrics[metric](output_batch, labels_batch)
         #                 for metric in metrics}
         #summary_batch['loss'] = loss.item()
