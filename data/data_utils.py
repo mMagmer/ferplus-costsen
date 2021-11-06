@@ -9,9 +9,10 @@ from albumentations.pytorch import ToTensorV2
 
 Spatial_transform = A.OneOf([A.ShiftScaleRotate(p=.5)
                              ,A.RandomCrop(height=40, width=40,p=.5)
-                             ,A.Perspective(p=.5)],p=.3)
+                             ,A.Perspective(p=.5)],p=.75)
 pixel_transform = A.OneOf([A.ColorJitter(p=.5)
-                           ,A.Sharpen(p=.5)],p=.3)
+                           ,A.Sharpen(p=.5)
+                           ,A.GaussNoise()],p=.75)
 
 transform_train = A.Compose([A.HorizontalFlip()
                              ,pixel_transform
