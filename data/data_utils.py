@@ -1,6 +1,7 @@
 
 import os
 
+import torch
 from torch.utils.data import Dataset , DataLoader
 
 import numpy as np 
@@ -42,23 +43,34 @@ transform_infer = A.Compose([A.Resize(128,128),
                              ToTensorV2()
                             ])
 
+gmean = lambda p: torch.exp(torch.log(p).mean())
+
 class FERDataset(Dataset):
     """
     A standard PyTorch definition of Dataset which defines the functions __len__ and __getitem__.
     """
-    def __init__(self, data_split, transform=None):
+    def __init__(self, data_split, transform=None, transform_weak=None):
         """
         Convert a dictionary containing list of images and lables to standard PyTorch definition of Dataset.
         Specifies transforms to apply on images.
 
         Args:
             data_split: (dict) dictionary containing list of images and labels
-            transform: (torchvision.transforms) transformation to apply on image
+            transform: (albumentations) transformation to apply on image
+            transform_weak: (albumentations) transformation to apply on image of majority and minority classes with different probability
         """
         self.in_channels=1
         self.num_classes=8
         self.data_split = data_split
         self.transform = transform
+        self.transform_weak =  transform_weak
+        
+        if transform_weak:
+            assert transform , 'transfom is "None",you should specify it too if you are using tarnsform_weak'
+        
+        p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
+        Nprior = (p/gmean(p))
+        self.cut_off = torch.sigmoid(-torch.log(Nprior))
 
     def __len__(self):
         # return size of dataset
@@ -76,8 +88,19 @@ class FERDataset(Dataset):
             label: (int) corresponding label of image
         """
         image = self.data_split['images'][idx]
+        label = self.data_split['labels'][idx]
         
-        if self.transform:
+        if self.transform_weak:
+            t = torch.rand([]).item()
+            if t < self.cut_off[label].item():
+                augmented = self.transform_weak(image=image)
+            
+            else:
+                augmented = self.transform(image=image)
+            
+            image = augmented['image']
+                
+        elif self.transform:
             augmented = self.transform(image=image)
             image = augmented['image']
         
