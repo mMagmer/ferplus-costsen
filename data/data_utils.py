@@ -7,25 +7,39 @@ import numpy as np
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
-Spatial_transform = A.OneOf([A.ShiftScaleRotate(p=.5)
-                             ,A.RandomCrop(height=40, width=40,p=.5)
-                             ,A.Perspective(p=.5)],p=.75)
-pixel_transform = A.OneOf([A.ColorJitter(p=.5)
-                           ,A.Sharpen(p=.5)
-                           ,A.GaussNoise()],p=.75)
+Spatial_transform = A.OneOf([A.ShiftScaleRotate(p=.5),
+                             A.RandomCrop(height=40, width=40,p=.5),
+                             A.Perspective(p=.5)],p=.75)
 
-transform_train = A.Compose([A.HorizontalFlip()
-                             ,pixel_transform
-                             ,Spatial_transform
-                             ,A.CoarseDropout(max_holes=4,min_holes=1,max_height=4,max_width=4,p=.5,fill_value=128)
-                             ,A.Resize(128,128)
-                             ,A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0)
-                             ,ToTensorV2()
+pixel_transform = A.OneOf([A.ColorJitter(p=.5),
+                           A.Sharpen(p=.5),
+                           A.GaussNoise(),
+                           A.Posterize()],p=.75)
+
+transform_train = A.Compose([A.HorizontalFlip(),
+                             pixel_transform,
+                             Spatial_transform,
+                             A.CoarseDropout(max_holes=4,min_holes=1,max_height=4,max_width=4,p=.5,fill_value=128),
+                             A.Resize(128,128),
+                             A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0),
+                             ToTensorV2()
                             ])
 
-transform_infer = A.Compose([A.Resize(128,128)
-                             ,A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0)
-                             ,ToTensorV2()
+transform_weak = A.Compose([A.HorizontalFlip(p=.2),
+                            A.ShiftScaleRotate(scale_limit=0.0, rotate_limit=5,p=.1),
+                            A.OneOf([A.ColorJitter(),
+                                     A.Sharpen(),
+                                     A.GaussNoise(),
+                                     A.Posterize()],p=.2),
+                            A.CoarseDropout(max_holes=4,min_holes=1,max_height=4,max_width=4,fill_value=128,p=.1),
+                            A.Resize(128,128),
+                            A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0),
+                            ToTensorV2()
+                           ])
+
+transform_infer = A.Compose([A.Resize(128,128),
+                             A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0),
+                             ToTensorV2()
                             ])
 
 class FERDataset(Dataset):
