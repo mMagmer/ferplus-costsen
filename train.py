@@ -146,7 +146,7 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
 
         # If best_eval, best_save_path
         if is_best:
-            logging.info("- Found new best accuracy")
+            logging.info("- Found new best "+metrics)
             best_val_acc = val_acc
 
             # Save best val metrics in a json file in the model directory
@@ -301,7 +301,7 @@ if __name__ == '__main__':
     
     
     train_dl = DataLoader(trainset, batch_size= params.batch_size, 
-                          shuffle=True, sampler= blance_sampler,
+                          shuffle=False, sampler= blance_sampler,
                           num_workers= params.num_workers, pin_memory= params.cuda)
     
     val_dl = DataLoader(valset, batch_size= params.batch_size, 
@@ -332,22 +332,17 @@ if __name__ == '__main__':
 
     #assert False, 'forced stop!'
     # fetch loss function and metrics
-    loss_fn = torch.nn.CrossEntropyLoss(weight=w.cuda()**-1)
+    #loss_fn = torch.nn.CrossEntropyLoss(weight=w.cuda()**-1)
     
-    def accuracy(outputs, labels):
-        """
-        Compute the accuracy, given the outputs and labels for all images.
-        Args:
-            outputs: (np.ndarray) dimension batch_size x 6 - log softmax output of the model
-            labels: (np.ndarray) dimension batch_size, where each element is a value in [0, 1, 2, 3, 4, 5]
-        Returns: (float) accuracy in [0,1]
-        """
-        outputs = np.argmax(outputs, axis=1)
-        return np.sum(outputs==labels)/float(labels.size)
+    prior = (p/gmean(p))
+    weight = prior**(-1/3)
+    margin = -torch.log(prior**(-1/3))
+
+    loss_fn = MarginCalibratedCELoss(weight=weight,margin=margin).cuda()
 
 
     # maintain all metrics required in this dictionary- these are used in the training and evaluation loops
-    metrics = 'accuracy'
+    metrics = 'recall'
         
 
     # Train the model
