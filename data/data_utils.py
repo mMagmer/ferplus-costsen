@@ -92,7 +92,7 @@ class FERDataset(Dataset):
         
         if self.transform_weak:
             t = torch.rand([]).item()
-            if t < self.cut_off[label].item():
+            if t > self.cut_off[label].item():
                 augmented = self.transform_weak(image=image)
             
             else:
