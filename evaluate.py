@@ -12,7 +12,7 @@ import utils
 from data.data_utils import fetch_data , FERDataset , transform_train , transform_infer
 
 
-
+@torch.no_grad()
 def evaluate(model, loss_fn, dataloader, metrics, params):
     """Evaluate the model on `num_steps` batches.
 
