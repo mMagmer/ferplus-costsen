@@ -13,6 +13,7 @@ from data.data_utils import fetch_data , FERDataset , transform_train , transfor
 
 from train_utils import MarginCalibratedCELoss , ConfusionMatrix
 
+@torch.no_grad()
 def evaluate(model, loss_fn, dataloader, metrics, params):
     """Evaluate the model on `num_steps` batches.
 
