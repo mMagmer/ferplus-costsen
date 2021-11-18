@@ -51,7 +51,7 @@ class MarginCalibratedCELoss(_Loss):
                  size_average=None, reduce=None, reduction: str = 'mean') -> None:
         super(MarginCalibratedCELoss, self).__init__(size_average, reduce, reduction)
         self.register_buffer('weight', weight)
-        self.register_buffer('margin', weight)
+        self.register_buffer('margin', margin)
         self.weight: Optional[Tensor]
         self.margin: Optional[Tensor]
         
