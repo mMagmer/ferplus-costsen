@@ -3,6 +3,7 @@
 import argparse
 import logging
 import os
+from tabulate import tabulate
 
 import numpy as np
 import torch
@@ -69,6 +70,14 @@ def evaluate(model, loss_fn, dataloader, metrics, params):
     metrics_string = " ; ".join("{}: {:05.3f}".format(k, v)
                                 for k, v in metrics_mean.items())
     logging.info("- Eval metrics : " + metrics_string)
+    
+    # compute per class metrics in summary
+    metrics_per_class = cm.compute(average=False)
+    metric_list = ['recall', 'percision', 'IoU']
+    logging.info("-per class Eval metrics :")
+    classes = dataloader.dataset.classes
+    logging.info(tabulate([[m , *[b.item() for b in metrics_per_class[m]]] for m in metric_list],
+                          headers=['Metric',*classes], tablefmt="rst",floatfmt=".3f"))
     return metrics_mean
 
 
