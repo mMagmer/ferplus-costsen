@@ -49,7 +49,7 @@ class FERDataset(Dataset):
     """
     A standard PyTorch definition of Dataset which defines the functions __len__ and __getitem__.
     """
-    def __init__(self, data_split, transform=None, transform_weak=None):
+    def __init__(self, data_split, classes=None, transform=None, transform_weak=None):
         """
         Convert a dictionary containing list of images and lables to standard PyTorch definition of Dataset.
         Specifies transforms to apply on images.
@@ -62,14 +62,15 @@ class FERDataset(Dataset):
         self.in_channels=1
         self.num_classes=8
         self.data_split = data_split
+        self.classes = classes
         self.transform = transform
         self.transform_weak =  transform_weak
         
         if transform_weak:
             assert transform , 'transfom is "None",you should specify it too if you are using tarnsform_weak'
         
-        p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
-        Nprior = (p/gmean(p))
+        self.p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
+        Nprior = (self.p/gmean(self.p))
         self.cut_off = torch.sigmoid(-torch.log(Nprior))
 
     def __len__(self):
