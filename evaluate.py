@@ -73,7 +73,7 @@ def evaluate(model, loss_fn, dataloader, metrics, params):
     
     # compute per class metrics in summary
     metrics_per_class = cm.compute(average=False)
-    metric_list = ['recall', 'percision', 'IoU']
+    metric_list = ['recall', 'precision', 'IoU']
     logging.info("-per class Eval metrics :")
     classes = dataloader.dataset.classes
     logging.info(tabulate([[m , *[b.item() for b in metrics_per_class[m]]] for m in metric_list],
