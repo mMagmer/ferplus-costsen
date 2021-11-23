@@ -328,7 +328,7 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(),
                           lr=params.lr,momentum=params.momentum,weight_decay=params.weight_decay, nesterov=True)
     
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.6)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.6)
 
     #assert False, 'forced stop!'
     # fetch loss function and metrics
@@ -338,7 +338,7 @@ if __name__ == '__main__':
     weight = prior**(-1/3)
     margin = -torch.log(prior**(-1/3))
 
-    loss_fn = MarginCalibratedCELoss(weight=weight,margin=margin).cuda()
+    loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin).cuda()
 
 
     # maintain all metrics required in this dictionary- these are used in the training and evaluation loops
