@@ -46,9 +46,10 @@ class MarginCalibratedCELoss(_Loss):
     
     __constants__ = ['ignore_index', 'reduction', 'label_smoothing']
     ignore_index: int
+    label_smoothing: float
         
     def __init__(self, weight: Optional[Tensor] = None, margin: Optional[Tensor] = None, ignore_index: int = -100,
-                 size_average=None, reduce=None, reduction: str = 'mean') -> None:
+                 size_average=None, reduce=None, reduction: str = 'mean', label_smoothing: float = 0.0) -> None:
         super(MarginCalibratedCELoss, self).__init__(size_average, reduce, reduction)
         self.register_buffer('weight', weight)
         self.register_buffer('margin', margin)
@@ -56,12 +57,13 @@ class MarginCalibratedCELoss(_Loss):
         self.margin: Optional[Tensor]
         
         self.ignore_index = ignore_index
+        self.label_smoothing = label_smoothing
     
     def forward(self, input: Tensor, target: Tensor) -> Tensor:
         if not self.margin is None:
             input = input + self.margin
         return F.cross_entropy(input, target, weight=self.weight,
-                               ignore_index=self.ignore_index, reduction=self.reduction)
+                               ignore_index=self.ignore_index, reduction=self.reduction, label_smoothing=self.label_smoothing)
 
     
 import numpy as np

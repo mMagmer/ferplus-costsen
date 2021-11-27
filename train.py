@@ -338,7 +338,7 @@ if __name__ == '__main__':
     weight = prior**(-1/3)
     margin = -torch.log(prior**(-1/3))
 
-    loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin).cuda()
+    loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin, label_smoothing=0.1).cuda()
 
 
     # maintain all metrics required in this dictionary- these are used in the training and evaluation loops
