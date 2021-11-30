@@ -1,49 +1,77 @@
 
 import os
 
+import torch
 from torch.utils.data import Dataset , DataLoader
 
 import numpy as np 
 import albumentations as A
 from albumentations.pytorch import ToTensorV2
 
-Spatial_transform = A.OneOf([A.ShiftScaleRotate(p=.5)
-                             ,A.RandomCrop(height=40, width=40,p=.5)
-                             ,A.Perspective(p=.5)],p=.75)
-pixel_transform = A.OneOf([A.ColorJitter(p=.5)
-                           ,A.Sharpen(p=.5)],p=.75)
+Spatial_transform = A.OneOf([A.ShiftScaleRotate(p=.5),
+                             A.RandomCrop(height=40, width=40,p=.5),
+                             A.Perspective(p=.5)],p=.75)
 
-transform_train = A.Compose([A.HorizontalFlip()
-                             ,pixel_transform
-                             ,Spatial_transform
-                             ,A.CoarseDropout(max_holes=4,min_holes=1,max_height=4,max_width=4,p=.5,fill_value=128)
-                             ,A.Resize(128,128)
-                             ,A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0)
-                             ,ToTensorV2()
+pixel_transform = A.OneOf([A.ColorJitter(p=.5),
+                           A.Sharpen(p=.5),
+                           A.GaussNoise(),
+                           A.Posterize()],p=.75)
+
+transform_train = A.Compose([A.HorizontalFlip(),
+                             pixel_transform,
+                             Spatial_transform,
+                             A.CoarseDropout(max_holes=4,min_holes=1,max_height=4,max_width=4,p=.5,fill_value=128),
+                             A.Resize(128,128),
+                             A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0),
+                             ToTensorV2()
                             ])
 
-transform_infer = A.Compose([A.Resize(128,128)
-                             ,A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0)
-                             ,ToTensorV2()
+transform_weak = A.Compose([A.HorizontalFlip(p=.2),
+                            A.ShiftScaleRotate(scale_limit=0.0, rotate_limit=5,p=.1),
+                            A.OneOf([A.ColorJitter(),
+                                     A.Sharpen(),
+                                     A.GaussNoise(),
+                                     A.Posterize()],p=.2),
+                            A.CoarseDropout(max_holes=4,min_holes=1,max_height=4,max_width=4,fill_value=128,p=.1),
+                            A.Resize(128,128),
+                            A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0),
+                            ToTensorV2()
+                           ])
+
+transform_infer = A.Compose([A.Resize(128,128),
+                             A.Normalize(mean=(0.5), std=(0.5),max_pixel_value=255.0),
+                             ToTensorV2()
                             ])
+
+gmean = lambda p: torch.exp(torch.log(p).mean())
 
 class FERDataset(Dataset):
     """
     A standard PyTorch definition of Dataset which defines the functions __len__ and __getitem__.
     """
-    def __init__(self, data_split, transform=None):
+    def __init__(self, data_split, classes=None, transform=None, transform_weak=None):
         """
         Convert a dictionary containing list of images and lables to standard PyTorch definition of Dataset.
         Specifies transforms to apply on images.
 
         Args:
             data_split: (dict) dictionary containing list of images and labels
-            transform: (torchvision.transforms) transformation to apply on image
+            transform: (albumentations) transformation to apply on image
+            transform_weak: (albumentations) transformation to apply on image of majority and minority classes with different probability
         """
         self.in_channels=1
         self.num_classes=8
         self.data_split = data_split
+        self.classes = classes
         self.transform = transform
+        self.transform_weak =  transform_weak
+        
+        if transform_weak:
+            assert transform , 'transfom is "None",you should specify it too if you are using tarnsform_weak'
+        
+        self.p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
+        Nprior = (self.p/gmean(self.p))
+        self.cut_off = torch.sigmoid(-torch.log(Nprior))
 
     def __len__(self):
         # return size of dataset
@@ -61,8 +89,19 @@ class FERDataset(Dataset):
             label: (int) corresponding label of image
         """
         image = self.data_split['images'][idx]
+        label = self.data_split['labels'][idx]
         
-        if self.transform:
+        if self.transform_weak:
+            t = torch.rand([]).item()
+            if t > self.cut_off[label].item():
+                augmented = self.transform_weak(image=image)
+            
+            else:
+                augmented = self.transform(image=image)
+            
+            image = augmented['image']
+                
+        elif self.transform:
             augmented = self.transform(image=image)
             image = augmented['image']
         

@@ -15,7 +15,7 @@ sys.path.append('')
 #os.chdir("..")
 
 import utils
-from data.data_utils import fetch_data, FERDataset, DataLoader, transform_train, transform_infer
+from data.data_utils import fetch_data, FERDataset, DataLoader, transform_train, transform_weak, transform_infer 
 from evaluate import evaluate
 
 from efficientnet_pytorch import EfficientNet
@@ -23,12 +23,11 @@ from efficientnet_pytorch import EfficientNet
 #import warnings
 #warnings.filterwarnings("ignore", message=".*pthreadpool.*")
 
+from train_utils import MarginCalibratedCELoss , ConfusionMatrix
 
 
 
-
-
-def train(model, optimizer, loss_fn, dataloader, metrics, params):
+def train(model, optimizer, loss_fn, dataloader, lr_warmUp, metrics, params):
     """Train the model on `num_steps` batches
 
     Args:
@@ -36,7 +35,7 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
         optimizer: (torch.optim) optimizer for parameters of model
         loss_fn: a function that takes batch_output and batch_labels and computes the loss for the batch
         dataloader: (DataLoader) a torch.utils.data.DataLoader object that fetches training data
-        metrics: (dict) a dictionary of functions that compute a metric using the output and labels of each batch
+        metrics: main metric for determining best performing model
         params: (Params) hyperparameters
         num_steps: (int) number of batches to train on, each of size params.batch_size
     """
@@ -45,6 +44,8 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
     model.train()
 
     # summary for current training loop and a running average object for loss
+    cm = ConfusionMatrix(num_classes=8)
+    
     summ = []
     loss_avg = utils.RunningAverage()
 
@@ -69,18 +70,21 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
 
             # performs updates using calculated gradients
             optimizer.step()
+            if params.warm_up:
+                lr_warmUp.step()
 
             # Evaluate summaries only once in a while
             if i % params.save_summary_steps == 0:
                 # extract data from torch Variable, move to cpu, convert to numpy arrays
-                output_batch = output_batch.data.cpu().numpy()
-                labels_batch = labels_batch.data.cpu().numpy()
+                output_batch = output_batch.cpu().detach().numpy()
+                labels_batch = labels_batch.cpu().detach().numpy()
+                
+                cm.update(output_batch,labels_batch)
 
                 # compute all metrics on this batch
-                summary_batch = {metric: metrics[metric](output_batch, labels_batch)
-                                 for metric in metrics}
-                summary_batch['loss'] = loss.item()
-                summ.append(summary_batch)
+                #summary_batch = cm.compute()
+                #summary_batch['loss'] = loss.item()
+                #summ.append(summary_batch)
 
             # update the average loss
             loss_avg.update(loss.item())
@@ -89,14 +93,15 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
             t.update()
 
     # compute mean of all metrics in summary
-    metrics_mean = {metric: np.mean([x[metric]
-                                     for x in summ]) for metric in summ[0]}
+    metrics_mean = cm.compute()
+    
     metrics_string = " ; ".join("{}: {:05.3f}".format(k, v)
                                 for k, v in metrics_mean.items())
     logging.info("- Train metrics: " + metrics_string)
 
 
-def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, scheduler, loss_fn, metrics, params, model_dir,
+def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, scheduler, lr_warmUp,
+                       loss_fn, metrics, params, model_dir,
                        restore_file=None):
     """Train the model and evaluate every epoch.
 
@@ -106,7 +111,7 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
         val_dataloader: (DataLoader) a torch.utils.data.DataLoader object that fetches validation data
         optimizer: (torch.optim) optimizer for parameters of model
         loss_fn: a function that takes batch_output and batch_labels and computes the loss for the batch
-        metrics: (dict) a dictionary of functions that compute a metric using the output and labels of each batch
+        metrics: main metric for determining best performing model
         params: (Params) hyperparameters
         model_dir: (string) directory containing config, weights and log
         restore_file: (string) optional- name of file to restore from (without its extension .pth.tar)
@@ -125,14 +130,14 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
         logging.info("Epoch {}/{}".format(epoch + 1, params.num_epochs))
 
         # compute number of batches in one epoch (one full pass over the training set)
-        train(model, optimizer, loss_fn, train_dataloader, metrics, params)
+        train(model, optimizer, loss_fn, train_dataloader, lr_warmUp, metrics, params)
 
         # Evaluate for one epoch on validation set
         val_metrics = evaluate(model, loss_fn, val_dataloader, metrics, params)
         # update optimizer parameters
         scheduler.step()
         
-        val_acc = val_metrics['accuracy']
+        val_acc = val_metrics[metrics]
         is_best = val_acc >= best_val_acc
 
         # Save weights
@@ -144,7 +149,7 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
 
         # If best_eval, best_save_path
         if is_best:
-            logging.info("- Found new best accuracy")
+            logging.info("- Found new best "+metrics)
             best_val_acc = val_acc
 
             # Save best val metrics in a json file in the model directory
@@ -213,9 +218,10 @@ if __name__ == '__main__':
     parser.add_argument("--lr", type=float, default=0.03)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=5e-4)
-    parser.add_argument(
-        "--amp", action="store_true", help="use mixed precision training or not"
-    )
+    parser.add_argument("--step_size", type=int, default=10)
+    parser.add_argument("--gamma", type=float, default=0.6)
+    parser.add_argument("--warm_up", action="store_true", help="one epoch warm up for learning rate")
+    parser.add_argument("--amp", action="store_true", help="use mixed precision training or not")
 
     """
     Backbone Net Configurations
@@ -237,7 +243,7 @@ if __name__ == '__main__':
                         help="Directory containing the dataset")
 
     parser.add_argument("--dataset", type=str, default="fer+")
-    parser.add_argument("--data_sampler", type=str, default="weigthed")
+    parser.add_argument("--data_sampler", type=str, default="none")
     parser.add_argument("--num_workers", type=int, default=1)
     
     args = parser.parse_args()
@@ -287,13 +293,31 @@ if __name__ == '__main__':
     
     # fetch dataloaders
     data_splits ,classes = fetch_data()
-    trainset = FERDataset(data_splits['train'],transform=transform_train)
-    valset = FERDataset(data_splits['val'],transform=transform_infer)
+    trainset = FERDataset(data_splits['train'], classes=classes, transform=transform_train, transform_weak=transform_weak)
+    valset = FERDataset(data_splits['val'], classes=classes, transform=transform_infer)
     
-    blance_sampler = None
+    p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
+    gmean = lambda p: torch.exp(torch.log(p).mean())
+    
+    sampler = None
+    train_shuffle = True
+    if params.data_sampler == 'weighted':
+        w = (p/gmean(p))**(-1/3)
+        blance_sampler = torch.utils.data.WeightedRandomSampler(weights=w[trainset.data_split["labels"]],
+                                                                num_samples=len(trainset.data_split["labels"]),
+                                                                replacement=True, generator=None)
+        sampler = blance_sampler
+        train_shuffle = False
+        
+    elif params.data_sampler == 'none':
+        train_shuffle = True
+    
+    else:
+        raise Exception("Not Implemented Yet!")
+    
     
     train_dl = DataLoader(trainset, batch_size= params.batch_size, 
-                          shuffle=True, sampler= blance_sampler,
+                          shuffle=train_shuffle, sampler= sampler,
                           num_workers= params.num_workers, pin_memory= params.cuda)
     
     val_dl = DataLoader(valset, batch_size= params.batch_size, 
@@ -320,33 +344,30 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(),
                           lr=params.lr,momentum=params.momentum,weight_decay=params.weight_decay, nesterov=True)
     
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=100, gamma=0.6)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=params.step_size, gamma=params.gamma)
+    
+    lr_warmUp = None
+    if params.warm_up:
+        lr_warmUp = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01,
+                                                end_factor=1.0,total_iters=len(train_dl),
+                                                last_epoch=- 1, verbose=False)
 
     #assert False, 'forced stop!'
     # fetch loss function and metrics
-    loss_fn = torch.nn.CrossEntropyLoss()
+    #loss_fn = torch.nn.CrossEntropyLoss(weight=w.cuda()**-1)
     
-    def accuracy(outputs, labels):
-        """
-        Compute the accuracy, given the outputs and labels for all images.
-        Args:
-            outputs: (np.ndarray) dimension batch_size x 6 - log softmax output of the model
-            labels: (np.ndarray) dimension batch_size, where each element is a value in [0, 1, 2, 3, 4, 5]
-        Returns: (float) accuracy in [0,1]
-        """
-        outputs = np.argmax(outputs, axis=1)
-        return np.sum(outputs==labels)/float(labels.size)
+    prior = (p/gmean(p))
+    weight = prior**(-1/2)
+    margin = -torch.log(prior**(-1/2))
+
+    loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin, label_smoothing=0.1).cuda()
 
 
     # maintain all metrics required in this dictionary- these are used in the training and evaluation loops
-    metrics = {
-        'accuracy': accuracy,
-        # could add more metrics such as accuracy for each token type
-    }
-    # metrics.accuracy_score, sklearn.metrics.recall_score, sklearn.metrics.f1_score, sklearn.metrics.precision_score,
-    #or sklearn.metrics.classification_report  for all
+    metrics = 'recall'
+        
 
     # Train the model
     logging.info("Starting training for {} epoch(s)".format(params.num_epochs))
-    train_and_evaluate(model, train_dl, val_dl, optimizer, scheduler, loss_fn, metrics, params, args.model_dir,
+    train_and_evaluate(model, train_dl, val_dl, optimizer, scheduler, lr_warmUp, loss_fn, metrics, params, args.model_dir,
                        args.restore_file)
