@@ -27,7 +27,7 @@ from train_utils import MarginCalibratedCELoss , ConfusionMatrix
 
 
 
-def train(model, optimizer, loss_fn, dataloader, metrics, params):
+def train(model, optimizer, loss_fn, dataloader, lr_warmUp, metrics, params):
     """Train the model on `num_steps` batches
 
     Args:
@@ -70,6 +70,8 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
 
             # performs updates using calculated gradients
             optimizer.step()
+            if params.warm_up:
+                lr_warmUp.step()
 
             # Evaluate summaries only once in a while
             if i % params.save_summary_steps == 0:
@@ -98,7 +100,8 @@ def train(model, optimizer, loss_fn, dataloader, metrics, params):
     logging.info("- Train metrics: " + metrics_string)
 
 
-def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, scheduler, loss_fn, metrics, params, model_dir,
+def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, scheduler, lr_warmUp,
+                       loss_fn, metrics, params, model_dir,
                        restore_file=None):
     """Train the model and evaluate every epoch.
 
@@ -127,7 +130,7 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
         logging.info("Epoch {}/{}".format(epoch + 1, params.num_epochs))
 
         # compute number of batches in one epoch (one full pass over the training set)
-        train(model, optimizer, loss_fn, train_dataloader, metrics, params)
+        train(model, optimizer, loss_fn, train_dataloader, lr_warmUp, metrics, params)
 
         # Evaluate for one epoch on validation set
         val_metrics = evaluate(model, loss_fn, val_dataloader, metrics, params)
@@ -215,9 +218,10 @@ if __name__ == '__main__':
     parser.add_argument("--lr", type=float, default=0.03)
     parser.add_argument("--momentum", type=float, default=0.9)
     parser.add_argument("--weight_decay", type=float, default=5e-4)
-    parser.add_argument(
-        "--amp", action="store_true", help="use mixed precision training or not"
-    )
+    parser.add_argument("--step_size", type=int, default=10)
+    parser.add_argument("--gamma", type=float, default=0.6)
+    parser.add_argument("--warm_up", action="store_true", help="one epoch warm up for learning rate")
+    parser.add_argument("--amp", action="store_true", help="use mixed precision training or not")
 
     """
     Backbone Net Configurations
@@ -239,7 +243,7 @@ if __name__ == '__main__':
                         help="Directory containing the dataset")
 
     parser.add_argument("--dataset", type=str, default="fer+")
-    parser.add_argument("--data_sampler", type=str, default="weigthed")
+    parser.add_argument("--data_sampler", type=str, default="none")
     parser.add_argument("--num_workers", type=int, default=1)
     
     args = parser.parse_args()
@@ -294,14 +298,26 @@ if __name__ == '__main__':
     
     p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
     gmean = lambda p: torch.exp(torch.log(p).mean())
-    w = (p/gmean(p))**(-1/3)
-    blance_sampler = torch.utils.data.WeightedRandomSampler(weights=w[trainset.data_split["labels"]],
-                                                            num_samples=len(trainset.data_split["labels"]),
-                                                            replacement=True, generator=None)
+    
+    sampler = None
+    train_shuffle = True
+    if params.data_sampler == 'weighted':
+        w = (p/gmean(p))**(-1/3)
+        blance_sampler = torch.utils.data.WeightedRandomSampler(weights=w[trainset.data_split["labels"]],
+                                                                num_samples=len(trainset.data_split["labels"]),
+                                                                replacement=True, generator=None)
+        sampler = blance_sampler
+        train_shuffle = False
+        
+    elif params.data_sampler == 'none':
+        train_shuffle = True
+    
+    else:
+        raise Exception("Not Implemented Yet!")
     
     
     train_dl = DataLoader(trainset, batch_size= params.batch_size, 
-                          shuffle=False, sampler= blance_sampler,
+                          shuffle=train_shuffle, sampler= sampler,
                           num_workers= params.num_workers, pin_memory= params.cuda)
     
     val_dl = DataLoader(valset, batch_size= params.batch_size, 
@@ -328,15 +344,21 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(),
                           lr=params.lr,momentum=params.momentum,weight_decay=params.weight_decay, nesterov=True)
     
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=10, gamma=0.6)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=params.step_size, gamma=params.gamma)
+    
+    lr_warmUp = None
+    if params.warm_up:
+        lr_warmUp = optim.lr_scheduler.LinearLR(optimizer, start_factor=0.01,
+                                                end_factor=1.0,total_iters=len(train_dl),
+                                                last_epoch=- 1, verbose=False)
 
     #assert False, 'forced stop!'
     # fetch loss function and metrics
     #loss_fn = torch.nn.CrossEntropyLoss(weight=w.cuda()**-1)
     
     prior = (p/gmean(p))
-    weight = prior**(-1/3)
-    margin = -torch.log(prior**(-1/3))
+    weight = prior**(-1/2)
+    margin = -torch.log(prior**(-1/2))
 
     loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin, label_smoothing=0.1).cuda()
 
@@ -347,5 +369,5 @@ if __name__ == '__main__':
 
     # Train the model
     logging.info("Starting training for {} epoch(s)".format(params.num_epochs))
-    train_and_evaluate(model, train_dl, val_dl, optimizer, scheduler, loss_fn, metrics, params, args.model_dir,
+    train_and_evaluate(model, train_dl, val_dl, optimizer, scheduler, lr_warmUp, loss_fn, metrics, params, args.model_dir,
                        args.restore_file)
