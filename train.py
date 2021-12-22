@@ -3,6 +3,7 @@
 import argparse
 import logging
 import os
+import random
 
 import numpy as np
 import torch
@@ -278,8 +279,11 @@ if __name__ == '__main__':
 
     # Set the random seed for reproducible experiments
     torch.manual_seed(230)
+    np.random.seed(0)
+    random.seed(0)
     if params.cuda:
         torch.cuda.manual_seed(230)
+        torch.backends.cudnn.deterministic = True
 
     # Set the logger
     utils.set_logger(os.path.join(args.model_dir, 'train.log'))
@@ -293,7 +297,7 @@ if __name__ == '__main__':
     
     # fetch dataloaders
     data_splits ,classes = fetch_data()
-    trainset = FERDataset(data_splits['train'], classes=classes, transform=transform_train, transform_weak=transform_weak)
+    trainset = FERDataset(data_splits['train'], classes=classes, transform=transform_train, transform_weak=None)
     valset = FERDataset(data_splits['val'], classes=classes, transform=transform_infer)
     
     p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
@@ -360,7 +364,7 @@ if __name__ == '__main__':
     weight = prior**(-1/2)
     margin = -torch.log(prior**(-1/2))
 
-    loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin, label_smoothing=0.1).cuda()
+    loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin, label_smoothing=0.05).cuda()
 
 
     # maintain all metrics required in this dictionary- these are used in the training and evaluation loops
