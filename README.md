@@ -5,7 +5,7 @@ The FER+ annotations provide a set of new labels for the standard Emotion FER da
 
 Since we can't host the actual image content, please find the original FER data set [here](https://www.kaggle.com/c/challenges-in-representation-learning-facial-expression-recognition-challenge/data).
 
-this branch is for developing new cost sensetive approach for learning minority classes in fer+ dataset. 
+this branch is for developing new augmentation method with fix set of possible function. 
 
 # Citation
 
