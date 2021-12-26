@@ -1,5 +1,6 @@
 
 import os
+import random
 
 import torch
 from torch.utils.data import Dataset , DataLoader
@@ -44,6 +45,70 @@ transform_infer = A.Compose([A.Resize(128,128),
                             ])
 
 gmean = lambda p: torch.exp(torch.log(p).mean())
+
+class FixAugment():
+    """
+    A standard PyTorch definition of Dataset which defines the functions __len__ and __getitem__ 
+    for Test-Time Augmentation.
+    """
+    def __init__(self, Naug: int = 3, transform: A.Compose = None) -> None:
+        """
+        Specifies transforms to apply on images.
+        Convert a A.compose transform to list of #.
+
+        Args:
+            Naug: # of fix transform to apply to 
+            transform: (albumentations) transformation to apply on image
+        """
+        self.transform = A.ReplayCompose(transform)
+        self.Naug = Naug
+        self.transform_list = [] # populate on __call__.
+
+    def __len__(self):
+        """
+        return size of transform_list
+        """
+        return len(self.transform_list)
+    
+    def __bool__(self):
+        return True
+
+    def __getitem__(self, idx: int):
+        """
+        Fetch index idx image and labels from dataset. Perform transforms on image.
+
+        Args:
+            idx: (int) index in [0, 1, ..., len(transform_list)-1]
+
+        Returns:
+            return parameter dict for transform replay.
+        """
+        transform = self.transform_list[idx]
+        
+        return transform
+    
+    def __call__(self, image):
+        """
+        replay randomly selected transform to input image.
+        
+        image:
+            image: (ndarray) image.
+
+        Returns:
+            augmented image.
+        
+        """
+        
+        if len(self.transform_list) < self.Naug:
+            aug = self.transform(image=image)
+            augImage = aug['image']
+            self.transform_list.append(aug['replay'])
+            
+        else:
+            idx = random.randint(0,self.Naug-1)
+            augImage = A.ReplayCompose.replay(self.transform_list[idx], image=image)['image'] 
+        
+        return {'image' : augImage}
 
 class FERDataset(Dataset):
     """
