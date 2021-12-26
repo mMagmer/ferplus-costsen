@@ -16,7 +16,7 @@ sys.path.append('')
 #os.chdir("..")
 
 import utils
-from data.data_utils import fetch_data, FERDataset, DataLoader, transform_train, transform_weak, transform_infer 
+from data.data_utils import fetch_data, FERDataset, DataLoader, transform_train, transform_weak, transform_infer, FixAugment
 from evaluate import evaluate
 
 from efficientnet_pytorch import EfficientNet
@@ -297,7 +297,8 @@ if __name__ == '__main__':
     
     # fetch dataloaders
     data_splits ,classes = fetch_data()
-    trainset = FERDataset(data_splits['train'], classes=classes, transform=transform_train, transform_weak=None)
+    transform_fix = FixAugment(Naug = 10 , transform = transform_train)
+    trainset = FERDataset(data_splits['train'], classes=classes, transform=transform_fix, transform_weak=None)
     valset = FERDataset(data_splits['val'], classes=classes, transform=transform_infer)
     
     p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
@@ -322,7 +323,7 @@ if __name__ == '__main__':
     
     train_dl = DataLoader(trainset, batch_size= params.batch_size, 
                           shuffle=train_shuffle, sampler= sampler,
-                          num_workers= params.num_workers, pin_memory= params.cuda)
+                          num_workers= params.num_workers, pin_memory= params.cuda, persistent_workers=False)
     
     val_dl = DataLoader(valset, batch_size= params.batch_size, 
                         shuffle= False, sampler= None,
