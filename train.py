@@ -95,14 +95,16 @@ def train(model, optimizer, loss_fn, dataloader, lr_warmUp, metrics, params):
 
     # compute mean of all metrics in summary
     metrics_mean = cm.compute()
+    metrics_mean['loss'] = loss_avg()
     
     metrics_string = " ; ".join("{}: {:05.3f}".format(k, v)
                                 for k, v in metrics_mean.items())
     logging.info("- Train metrics: " + metrics_string)
+    return metrics_mean, cm
 
 
 def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, scheduler, lr_warmUp,
-                       loss_fn, metrics, params, model_dir,
+                       loss_fn, metrics, params, model_dir, tb_log,
                        restore_file=None):
     """Train the model and evaluate every epoch.
 
@@ -127,14 +129,36 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
     best_val_acc = 0.0
 
     for epoch in range(params.num_epochs):
+        # init summerywrite dict
+        tb_dict = {}
+
         # Run one epoch
         logging.info("Epoch {}/{}".format(epoch + 1, params.num_epochs))
 
         # compute number of batches in one epoch (one full pass over the training set)
-        train(model, optimizer, loss_fn, train_dataloader, lr_warmUp, metrics, params)
+        train_metrics, train_cm = train(model, optimizer, loss_fn, train_dataloader, lr_warmUp, metrics, params)
 
         # Evaluate for one epoch on validation set
-        val_metrics = evaluate(model, loss_fn, val_dataloader, metrics, params)
+        val_metrics, val_cm = evaluate(model, loss_fn, val_dataloader, metrics, params)
+        
+        # update tb summerywriter for train
+        tb_log.update(train_metrics, epoch,suffix='train/')
+        
+        metrics_per_class = train_cm.compute(average=False)
+        classes = val_dataloader.dataset.classes
+        tb_dict = dict(zip(classes, [b.item() for b in metrics_per_class['recall']]))
+        tb_log.update(tb_dict, epoch,suffix='train_per_class_recall/')
+        
+        tb_log.update({'lr' : optimizer.param_groups[0]["lr"]}, epoch,suffix='')
+        
+        # update tb summerywriter for val
+        tb_log.update(val_metrics, epoch,suffix='val/')
+        
+        metrics_per_class = val_cm.compute(average=False)
+        classes = val_dataloader.dataset.classes
+        tb_dict = dict(zip(classes, [b.item() for b in metrics_per_class['recall']]))
+        tb_log.update(tb_dict, epoch,suffix='val_per_class_recall/')
+        
         # update optimizer parameters
         scheduler.step()
         
@@ -288,6 +312,9 @@ if __name__ == '__main__':
     # Set the logger
     utils.set_logger(os.path.join(args.model_dir, 'train.log'))
     
+    # Set the tensorboard summerywriter 
+    tb_log = utils.TBLog(args.model_dir, "")
+    
     # hyper parameter settings
     logging.info("Setup for training model:")
     logging.info((json.dumps(vars(args),  indent=4)))
@@ -297,7 +324,7 @@ if __name__ == '__main__':
     
     # fetch dataloaders
     data_splits ,classes = fetch_data()
-    transform_fix = FixAugment(Naug = 10 , transform = transform_train)
+    transform_fix = FixAugment(Naug = 500 , transform = transform_train)
     trainset = FERDataset(data_splits['train'], classes=classes, transform=transform_fix, transform_weak=None)
     valset = FERDataset(data_splits['val'], classes=classes, transform=transform_infer)
     
@@ -323,7 +350,7 @@ if __name__ == '__main__':
     
     train_dl = DataLoader(trainset, batch_size= params.batch_size, 
                           shuffle=train_shuffle, sampler= sampler,
-                          num_workers= params.num_workers, pin_memory= params.cuda, persistent_workers=False)
+                          num_workers= params.num_workers, pin_memory= params.cuda, persistent_workers=True)
     
     val_dl = DataLoader(valset, batch_size= params.batch_size, 
                         shuffle= False, sampler= None,
@@ -374,5 +401,6 @@ if __name__ == '__main__':
 
     # Train the model
     logging.info("Starting training for {} epoch(s)".format(params.num_epochs))
-    train_and_evaluate(model, train_dl, val_dl, optimizer, scheduler, lr_warmUp, loss_fn, metrics, params, args.model_dir,
+    train_and_evaluate(model, train_dl, val_dl, optimizer, scheduler, lr_warmUp,
+                       loss_fn, metrics, params, args.model_dir, tb_log,
                        args.restore_file)

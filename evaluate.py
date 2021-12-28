@@ -78,7 +78,7 @@ def evaluate(model, loss_fn, dataloader, metrics, params):
     classes = dataloader.dataset.classes
     logging.info(tabulate([[m , *[b.item() for b in metrics_per_class[m]]] for m in metric_list],
                           headers=['Metric',*classes], tablefmt="rst",floatfmt=".3f"))
-    return metrics_mean
+    return metrics_mean, cm
 
 
 if __name__ == '__main__':
