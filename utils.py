@@ -4,6 +4,7 @@ import os
 import shutil
 
 import torch
+from torch.utils.tensorboard import SummaryWriter
 
 import textwrap
 
@@ -76,7 +77,31 @@ class MultiLineFormatter(logging.Formatter):
         record.msg = message
         return header + msg
     
-    
+
+class TBLog:
+    """
+    Construc tensorboard writer (self.writer).
+    The tensorboard is saved at os.path.join(tb_dir, file_name).
+    """
+
+    def __init__(self, tb_dir, file_name):
+        self.tb_dir = tb_dir
+        self.writer = SummaryWriter(os.path.join(self.tb_dir, file_name))
+
+    def update(self, tb_dict, it, suffix=None):
+        """
+        Args
+            tb_dict: contains scalar values for updating tensorboard
+            it: contains information of iteration (int).
+            suffix: If not None, the update key has the suffix.
+        """
+        if suffix is None:
+            suffix = ""
+
+        for key, value in tb_dict.items():
+            self.writer.add_scalar(suffix + key, value, it)
+
+
 def set_logger(log_path):
     """Set the logger to log info in terminal and file `log_path`.
 
