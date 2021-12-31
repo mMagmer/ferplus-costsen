@@ -58,11 +58,20 @@ class MarginCalibratedCELoss(_Loss):
         
         self.ignore_index = ignore_index
         self.label_smoothing = label_smoothing
+        self.it = 0
+        self.T = 100
+        #self.step()
+    
+    def step(self):
+        if self.it < self.T:
+            #self.margin = self.margin*self.it/50
+            #self.weight = self.weight**(self.it/50)
+            self.it+=1
     
     def forward(self, input: Tensor, target: Tensor) -> Tensor:
         if not self.margin is None:
-            input = input + self.margin
-        return F.cross_entropy(input, target, weight=self.weight,
+            input = input + self.margin*self.it/self.T
+        return F.cross_entropy(input, target, weight=self.weight**(self.it/self.T),
                                ignore_index=self.ignore_index, reduction=self.reduction, label_smoothing=self.label_smoothing)
 
     
