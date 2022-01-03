@@ -58,8 +58,8 @@ class MarginCalibratedCELoss(_Loss):
         
         self.ignore_index = ignore_index
         self.label_smoothing = label_smoothing
-        self.it = 0
-        self.T = 100
+        self.it = 50
+        self.T = 50
         #self.step()
     
     def step(self):

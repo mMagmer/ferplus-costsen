@@ -329,8 +329,8 @@ if __name__ == '__main__':
     
     # fetch dataloaders
     data_splits ,classes = fetch_data()
-    transform_fix = FixAugment(Naug = 500 , transform = transform_train)
-    trainset = FERDataset(data_splits['train'], classes=classes, transform=transform_fix, transform_weak=None)
+    #transform_fix = FixAugment(Naug = 500 , transform = transform_train)
+    trainset = FERDataset(data_splits['train'], classes=classes, transform=transform_train, transform_weak=None)
     valset = FERDataset(data_splits['val'], classes=classes, transform=transform_infer)
     
     p = torch.Tensor([36.3419, 26.4458, 12.5597, 12.4088,  8.6819,  0.6808,  2.2951,  0.5860])
