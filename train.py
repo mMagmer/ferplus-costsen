@@ -141,6 +141,9 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
         # Evaluate for one epoch on validation set
         val_metrics, val_cm = evaluate(model, loss_fn, val_dataloader, metrics, params)
         
+        #
+        loss_fn.step()
+        
         # update tb summerywriter for train
         tb_log.update(train_metrics, epoch,suffix='train/')
         
@@ -235,6 +238,8 @@ if __name__ == '__main__':
         help="batch size of evaluation data loader (it does not affect the accuracy)",
     )
     
+    parser.add_argument("--seed", type=int, default=0)
+    
     """
     Optimizer configurations
     """
@@ -302,11 +307,11 @@ if __name__ == '__main__':
     
 
     # Set the random seed for reproducible experiments
-    torch.manual_seed(230)
-    np.random.seed(0)
-    random.seed(0)
+    torch.manual_seed(230+params.seed)
+    np.random.seed(0 +params.seed)
+    random.seed(0 +params.seed)
     if params.cuda:
-        torch.cuda.manual_seed(230)
+        torch.cuda.manual_seed(230 +params.seed)
         torch.backends.cudnn.deterministic = True
 
     # Set the logger
@@ -389,8 +394,8 @@ if __name__ == '__main__':
     #loss_fn = torch.nn.CrossEntropyLoss(weight=w.cuda()**-1)
     
     prior = (p/gmean(p))
-    weight = prior**(-1/2)
-    margin = -torch.log(prior**(-1/2))
+    weight = prior**(-0/2)
+    margin = -torch.log(prior**(-2/2))
 
     loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin, label_smoothing=0.05).cuda()
 
