@@ -21,6 +21,8 @@ class MarginCalibratedCELoss(_Loss):
             If given, has to be a Tensor of size `C`
         margin (Tensor, optional): a manual margin calibration applied peredicted output.
             If given, has to be a Tensor of size `C`
+        smoothing_dist (Tensor, optional): dist that use for max entropy regularizer.
+            If given, has to be a Tensor of size `C`
         size_average (bool, optional): Deprecated (see :attr:`reduction`). By default,
             the losses are averaged over each loss element in the batch. Note that for
             some losses, there are multiple elements per sample. If the field :attr:`size_average`
@@ -48,14 +50,17 @@ class MarginCalibratedCELoss(_Loss):
     ignore_index: int
     label_smoothing: float
         
-    def __init__(self, weight: Optional[Tensor] = None, margin: Optional[Tensor] = None, ignore_index: int = -100,
-                 size_average=None, reduce=None, reduction: str = 'mean', label_smoothing: float = 0.0) -> None:
+    def __init__(self, weight: Optional[Tensor] = None, margin: Optional[Tensor] = None,
+                 smoothing_dist: Optional[Tensor] = None, ignore_index: int = -100,
+                 size_average=None, reduce=None, reduction: str = 'sum', label_smoothing: float = 0.0) -> None:
         super(MarginCalibratedCELoss, self).__init__(size_average, reduce, reduction)
         self.register_buffer('weight', weight)
         self.register_buffer('margin', margin)
+        self.register_buffer('smoothing_dist', smoothing_dist)
         self.weight: Optional[Tensor]
         self.margin: Optional[Tensor]
-        
+        self.smoothing_dist: Optional[Tensor]
+            
         self.ignore_index = ignore_index
         self.label_smoothing = label_smoothing
         self.it = 50
@@ -71,8 +76,22 @@ class MarginCalibratedCELoss(_Loss):
     def forward(self, input: Tensor, target: Tensor) -> Tensor:
         if not self.margin is None:
             input = input + self.margin*self.it/self.T
-        return F.cross_entropy(input, target, weight=self.weight**(self.it/self.T),
-                               ignore_index=self.ignore_index, reduction=self.reduction, label_smoothing=self.label_smoothing)
+        
+        N = 1
+        #if self.reduction=='mean':
+        N = target.shape[0]
+        #self.reduction='sum'
+            
+        loss = F.cross_entropy(input, target, weight=self.weight**(self.it/self.T),
+                               ignore_index=self.ignore_index, reduction=self.reduction, label_smoothing=0.0)
+        
+        max_entropy_regularizer = 0
+        if not self.smoothing_dist is None:
+            C = len(self.smoothing_dist)
+            max_entropy_regularizer = F.cross_entropy(input, 0*F.one_hot(target, num_classes=C)+self.smoothing_dist,
+                                                      weight=self.weight, ignore_index=self.ignore_index, reduction=self.reduction)
+        
+        return ( (1-self.label_smoothing)*loss + self.label_smoothing*max_entropy_regularizer)/N
 
     
 import numpy as np
