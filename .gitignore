@@ -82,6 +82,9 @@ target/
 notebooks/development.ipynb
 notebooks/augmentDemo.ipynb
 notebooks/test.py
+notebooks/
+
+*.sh
 
 # IPython
 profile_default/
