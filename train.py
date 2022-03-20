@@ -104,7 +104,7 @@ def train(model, optimizer, loss_fn, dataloader, lr_warmUp, metrics, params):
 
 
 def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, scheduler, lr_warmUp,
-                       loss_fn, metrics, params, model_dir, tb_log,
+                       loss_fn, val_loss_fn, metrics, params, model_dir, tb_log,
                        restore_file=None):
     """Train the model and evaluate every epoch.
 
@@ -127,6 +127,7 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
         utils.load_checkpoint(restore_path, model, optimizer)
 
     best_val_acc = 0.0
+    best_val_loss = 100
 
     for epoch in range(params.num_epochs):
         # init summerywrite dict
@@ -139,10 +140,10 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
         train_metrics, train_cm = train(model, optimizer, loss_fn, train_dataloader, lr_warmUp, metrics, params)
 
         # Evaluate for one epoch on validation set
-        val_metrics, val_cm = evaluate(model, loss_fn, val_dataloader, metrics, params)
+        val_metrics, val_cm = evaluate(model, val_loss_fn, val_dataloader, metrics, params)
         
         #
-        loss_fn.step()
+        #loss_fn.step()
         
         # update tb summerywriter for train
         tb_log.update(train_metrics, epoch,suffix='train/')
@@ -164,30 +165,44 @@ def train_and_evaluate(model, train_dataloader, val_dataloader, optimizer, sched
         
         # update optimizer parameters
         scheduler.step()
-        
+        addedText = []
         val_acc = val_metrics[metrics]
+        
         is_best = val_acc >= best_val_acc
+        
+        if is_best:
+            addedText.append(metrics)
+            best_val_acc = val_acc
+        
+        is_best_loss = val_metrics['loss'] <= best_val_loss
+        
+        if is_best_loss:
+            addedText.append('loss')
+            best_val_loss = val_metrics['loss']
+        
+        is_best = is_best or is_best_loss
 
         # Save weights
         utils.save_checkpoint({'epoch': epoch + 1,
                                'state_dict': model.state_dict(),
                                'optim_dict': optimizer.state_dict()},
                               is_best=is_best,
-                              checkpoint=model_dir)
+                              checkpoint=model_dir,
+                              prefix='_'.join(addedText))
 
         # If best_eval, best_save_path
         if is_best:
-            logging.info("- Found new best "+metrics)
-            best_val_acc = val_acc
+            logging.info("- Found new best "+'_'.join(addedText))
+            #best_val_acc = val_acc
 
             # Save best val metrics in a json file in the model directory
             best_json_path = os.path.join(
-                model_dir, "metrics_val_best_weights.json")
+                model_dir, "val_metrics_for_best_"+'_'.join(addedText)+"weights.json")
             utils.save_dict_to_json(val_metrics, best_json_path)
 
         # Save latest val metrics in a json file in the model directory
         last_json_path = os.path.join(
-            model_dir, "metrics_val_last_weights.json")
+            model_dir, "val_metrics_for_last_weights.json")
         utils.save_dict_to_json(val_metrics, last_json_path)
 
 
@@ -339,7 +354,7 @@ if __name__ == '__main__':
     sampler = None
     train_shuffle = True
     if params.data_sampler == 'weighted':
-        w = (p/gmean(p))**(-1/3)
+        w = (p/gmean(p))**(-1/1)
         blance_sampler = torch.utils.data.WeightedRandomSampler(weights=w[trainset.data_split["labels"]],
                                                                 num_samples=len(trainset.data_split["labels"]),
                                                                 replacement=True, generator=None)
@@ -381,6 +396,7 @@ if __name__ == '__main__':
     optimizer = optim.SGD(model.parameters(),
                           lr=params.lr,momentum=params.momentum,weight_decay=params.weight_decay, nesterov=True)
     
+    
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=params.step_size, gamma=params.gamma)
     
     lr_warmUp = None
@@ -392,12 +408,19 @@ if __name__ == '__main__':
     #assert False, 'forced stop!'
     # fetch loss function and metrics
     #loss_fn = torch.nn.CrossEntropyLoss(weight=w.cuda()**-1)
-    
+    p = p/p.sum()
     prior = (p/gmean(p))
-    weight = prior**(-0/2)
-    margin = -torch.log(prior**(-2/2))
+    weight = prior**(-2/2)
+    weight = weight/(weight*p).sum() # this only changes reletive learning rate.
+    margin = -torch.log(prior**(-0/2))
+    
+    smoothing_dist = p**0/(p**0).sum() #p/p.sum() # max_entropy_regularizer init
+    print(smoothing_dist)
+    print(weight)
+    print(margin)
 
-    loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin, label_smoothing=0.05).cuda()
+    loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin, smoothing_dist=smoothing_dist, label_smoothing=0.05).cuda()
+    val_loss_fn = MarginCalibratedCELoss(weight=weight, margin=margin, smoothing_dist=None, label_smoothing=0.0).cuda()
 
 
     # maintain all metrics required in this dictionary- these are used in the training and evaluation loops
@@ -407,5 +430,5 @@ if __name__ == '__main__':
     # Train the model
     logging.info("Starting training for {} epoch(s)".format(params.num_epochs))
     train_and_evaluate(model, train_dl, val_dl, optimizer, scheduler, lr_warmUp,
-                       loss_fn, metrics, params, args.model_dir, tb_log,
+                       loss_fn, val_loss_fn, metrics, params, args.model_dir, tb_log,
                        args.restore_file)
